@@ -96,18 +96,26 @@ namespace DC.IO
             //Loop through and load those models.
             for (int i = 0; i < szFiles.Length; i++)
             {
-                DCProgress.name = "Loading " + Path.GetFileName(szFiles[i]);
+                try
+                {
+                    DCProgress.name = "Loading " + Path.GetFileName(szFiles[i]);
 
-                //Make sure this file ends in mds. We've gotten false positives before. Add the result if the load was successful.
-                if (szFiles[i].EndsWith(".mds") && LoadModel(szFiles[i], out tResult, bScanOnly))
-                    tModels.Add(tResult);
+                    //Make sure this file ends in mds. We've gotten false positives before. Add the result if the load was successful.
+                    if (szFiles[i].EndsWith(".mds") && LoadModel(szFiles[i], out tResult, bScanOnly))
+                        tModels.Add(tResult);
 
-                //Update our progress.
-                DCProgress.value += 1;
+                    //Update our progress.
+                    DCProgress.value += 1;
 
-                //If the operation was canceled, bail out.
-                if (DCProgress.canceled)
-                    return new Model[0];
+                    //If the operation was canceled, bail out.
+                    if (DCProgress.canceled)
+                        return new Model[0];
+                }
+                catch (Exception ex)
+                {
+                    Log.Current.Error("Failed to load MDS: " + Path.GetFileName(szFiles[i]) + "\n" + ex.Message, "MDS Parsing Failed!");
+                }
+               
             }
 
             //Post the finish.

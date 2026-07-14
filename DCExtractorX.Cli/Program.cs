@@ -158,6 +158,7 @@ namespace DCExtractorX.Cli
         static int ExtractPakDirectory(string[] args)
         {
             if (args.Length < 1)
+            if (args.Length < 1)
             {
                 Console.Error.WriteLine("Usage: extract-pak-dir <dir>");
                 return 1;

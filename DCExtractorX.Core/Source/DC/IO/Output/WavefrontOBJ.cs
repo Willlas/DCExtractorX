@@ -1,5 +1,6 @@
 ﻿using Custom.IO;
 using DC.Types;
+using System.Globalization;
 using System.IO;
 using static DC.Types.TriangleStrip;
 using Index = DC.Types.Index; //MODERNIZATION: System.Index (added in later .NET/C#) collides with the format's own Index struct; alias disambiguates.
@@ -95,24 +96,24 @@ namespace DC.IO
             //Output our vertex data.
             for (int v = 0; v < tMesh.VertexCount; v++)
             {
-                tWriter.WriteLine("v " + tMesh.Vertices[v].x.ToString("0.00000") + " " +
-                    tMesh.Vertices[v].y.ToString("0.00000") + " " +
-                    tMesh.Vertices[v].z.ToString("0.00000"));
+                tWriter.WriteLine("v " + tMesh.Vertices[v].x.ToString("0.00000", CultureInfo.InvariantCulture) + " " +
+                    tMesh.Vertices[v].y.ToString("0.00000", CultureInfo.InvariantCulture) + " " +
+                    tMesh.Vertices[v].z.ToString("0.00000", CultureInfo.InvariantCulture));
             }
 
             //Output our normal data.
             for (int n = 0; n < tMesh.NormalCount; n++)
             {
-                tWriter.WriteLine("vn " + tMesh.Normals[n].x.ToString("0.00000") + " " +
-                tMesh.Normals[n].y.ToString("0.00000") + " " +
-                tMesh.Normals[n].z.ToString("0.00000"));
+                tWriter.WriteLine("vn " + tMesh.Normals[n].x.ToString("0.00000", CultureInfo.InvariantCulture) + " " +
+                tMesh.Normals[n].y.ToString("0.00000", CultureInfo.InvariantCulture) + " " +
+                tMesh.Normals[n].z.ToString("0.00000", CultureInfo.InvariantCulture));
             }
 
             //Output our uv data.
             for (int uv = 0; uv < tMesh.UVCount; uv++)
             {
-                tWriter.WriteLine("vt " + tMesh.UVs[uv].x.ToString("0.00000") + " " +
-                tMesh.UVs[uv].y.ToString("0.00000"));
+                tWriter.WriteLine("vt " + tMesh.UVs[uv].x.ToString("0.00000", CultureInfo.InvariantCulture) + " " +
+                tMesh.UVs[uv].y.ToString("0.00000", CultureInfo.InvariantCulture));
             }
 
             //This part is tricky, we need to convert the polygons in the DCMesh into regular triangles.

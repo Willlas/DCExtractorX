@@ -112,7 +112,7 @@ namespace DC.IO
             //Calculate how many files we're going to process.
             int nMax = 0;
             for (int fileType = 0; fileType < szExtensions.Length; fileType++)
-                nMax += Directory.GetFiles(szDirectory, "*." + szExtensions[fileType], SearchOption.AllDirectories).Length;
+                nMax += Directory.GetFiles(szDirectory, "*" + szExtensions[fileType], SearchOption.AllDirectories).Length;
 
             //Set our new maximum.
             DCProgress.maximum = nMax;
@@ -123,7 +123,7 @@ namespace DC.IO
                 DCProgress.name = "Extracting " + szExtensions[fileType] + " Directory";
 
                 //Extract the directory.
-                ExtractDirectoryInternal(szDirectory, "*." + szExtensions[fileType]);
+                ExtractDirectoryInternal(szDirectory, "*" + szExtensions[fileType]);
 
                 //If we canceled, leave early.
                 if (DCProgress.canceled)
