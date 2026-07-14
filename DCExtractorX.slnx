@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="DCExtractorX.Cli/DCExtractorX.Cli.csproj" />
+  <Project Path="DCExtractorX.Core/DCExtractorX.Core.csproj" />
+  <Project Path="DCExtractorX.Gui/DCExtractorX.Gui.csproj" />
+  <Project Path="DCExtractorX.Tests/DCExtractorX.Tests.csproj" />
+</Solution>
