@@ -1,6 +1,8 @@
 ﻿using Custom.Diagnostics;
 using DC;
 using DC.IO;
+using DC.Pipeline;
+using DC.Reporting;
 using DC.Types;
 using System;
 using System.IO;
@@ -42,7 +44,8 @@ namespace DCExtractorX.Cli
     {
         static int Main(string[] args)
         {
-            Log.Current = new ConsoleLog();
+            Logger.Init();
+            Log.Current = new LoggingLog(new ConsoleLog());
             DCProgress.NameChanged += szName => Console.WriteLine(szName);
 
             if (args.Length == 0)
@@ -62,6 +65,7 @@ namespace DCExtractorX.Cli
                     case "extract-dat": return ExtractDat(szRest);
                     case "extract-pak": return ExtractPak(szRest);
                     case "extract-pak-dir": return ExtractPakDirectory(szRest);
+                    case "analyze-extract-all": return AnalyzeExtractAll(szRest);
                     case "mds2obj": return ConvertMdsToObj(szRest);
                     case "mds2obj-dir": return ConvertMdsToObjDirectory(szRest);
                     case "mds2smd": return ConvertMdsToSmd(szRest);
@@ -96,6 +100,8 @@ namespace DCExtractorX.Cli
             Console.WriteLine("  dcx extract-dat <path.dat> <path.hd2|path.hd3> <outDir>");
             Console.WriteLine("  dcx extract-pak <path.pak|.chr|.efp|.ipk|.mpk|.pcp|.sky|.snd>");
             Console.WriteLine("  dcx extract-pak-dir <dir>");
+            Console.WriteLine("  dcx analyze-extract-all <gameDir> <outDir>   Scan -> Extract -> Convert -> Analyze -> Report, in one pass.");
+            Console.WriteLine("                                                <gameDir> must contain DATA.DAT + DATA.HD2/DATA.HD3 at its root.");
             Console.WriteLine("  dcx mds2obj <path.mds>");
             Console.WriteLine("  dcx mds2obj-dir <dir>");
             Console.WriteLine("  dcx mds2smd <path.mds> [--split] [--anim]");
@@ -158,7 +164,6 @@ namespace DCExtractorX.Cli
         static int ExtractPakDirectory(string[] args)
         {
             if (args.Length < 1)
-            if (args.Length < 1)
             {
                 Console.Error.WriteLine("Usage: extract-pak-dir <dir>");
                 return 1;
@@ -166,6 +171,61 @@ namespace DCExtractorX.Cli
 
             PAK.ExtractDirectory(args[0], PakExtensions);
             return 0;
+        }
+
+        ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+        /// Analyze + Extract All.
+        ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+        /// <summary>
+        /// Runs the full "Analyze + Extract All" pipeline (Scan -&gt; Extract -&gt; Convert -&gt; Analyze -&gt; Report), printing
+        /// live progress as each asset is processed. Individual asset failures are logged/recorded but never stop
+        /// the run; only invalid arguments or a missing/unreadable root archive cause a non-zero exit here.
+        /// </summary>
+        static int AnalyzeExtractAll(string[] args)
+        {
+            if (args.Length < 2)
+            {
+                Console.Error.WriteLine("Usage: analyze-extract-all <gameDir> <outDir>");
+                return 1;
+            }
+
+            int nMaximum = 1;
+            DCProgress.MaximumChanged += nValue => nMaximum = Math.Max(1, nValue);
+
+            void PrintProgress(string szAsset)
+            {
+                if (string.IsNullOrEmpty(szAsset))
+                    return;
+
+                Console.WriteLine();
+                Console.WriteLine($"[{PipelineProgress.processed}/{nMaximum}]");
+                Console.WriteLine($"Asset={szAsset}");
+                Console.WriteLine($"Stage={PipelineProgress.stage}");
+                Console.WriteLine($"Warnings={PipelineProgress.warnings}");
+                Console.WriteLine($"Errors={PipelineProgress.errors}");
+            }
+
+            PipelineProgress.CurrentAssetChanged += PrintProgress;
+
+            try
+            {
+                RunReport tReport = AnalyzeExtractPipeline.Run(args[0], args[1]);
+
+                Console.WriteLine();
+                Console.WriteLine("=== Analyze + Extract All - FINISHED ===");
+                Console.WriteLine($"Processed={tReport.Processed} Success={tReport.Success} Failed={tReport.Failed} Unsupported={tReport.Unsupported} Warnings={tReport.Warnings} Errors={tReport.Errors}");
+                Console.WriteLine("Reports: " + Path.Combine(args[1], "Reports"));
+                return 0;
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine("Fatal: " + ex.Message);
+                return 1;
+            }
+            finally
+            {
+                PipelineProgress.CurrentAssetChanged -= PrintProgress;
+            }
         }
 
         ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
