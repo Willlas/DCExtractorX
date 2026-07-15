@@ -160,6 +160,7 @@ namespace DC.Pipeline
                         PipelineProgress.currentFile = Path.GetFileName(tModel.filePath);
 
                         PerformSaveSmd(tModel);
+                        PerformSaveSObj(tModel);
                     }
 
                     tTm2Images = TM2.LoadDirectory(szGameDirectory);
@@ -249,6 +250,31 @@ namespace DC.Pipeline
                         SMD.Save(tSplitModel);
                     if (Settings.exportAnimations)
                         SMD.SaveAnimations(tModel);
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Error("Failed to convert model to SMD.", szAsset: Path.GetFileName(tModel.filePath), szModel: tModel.Name, szPath: tModel.filePath, tException: ex);
+            }
+        }
+
+        /// <summary>
+        /// Mirrors the legacy PerformSaveSOBJ behavior (see DCExtractorForm.Operations.cs / CLI Program.cs), wrapped
+        /// so a single model's export failure is logged and recorded but doesn't stop the run.
+        /// </summary>
+        static void PerformSaveSObj(Model tModel)
+        {
+            try
+            {
+                if (Settings.modelConversion == Settings.ModelConversionSetting.OneModel)
+                {
+                    WavefrontOBJ.Save(tModel);
+                }
+                else
+                {
+                    Model[] tSplitModels = tModel.Split();
+                    foreach (Model tSplitModel in tSplitModels)
+                        WavefrontOBJ.Save(tSplitModel);
                 }
             }
             catch (Exception ex)

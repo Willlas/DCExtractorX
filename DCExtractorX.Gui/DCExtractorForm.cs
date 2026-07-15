@@ -135,4 +135,9 @@ public partial class DCExtractorForm : Form
         if (Directory.Exists(m_szOutputDirectory))
             Process.Start(new ProcessStartInfo(m_szOutputDirectory) { UseShellExecute = true });
     }
+
+    private void menuStrip1_ItemClicked(object sender, ToolStripItemClickedEventArgs e)
+    {
+
+    }
 }
