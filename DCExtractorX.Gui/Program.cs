@@ -11,7 +11,8 @@ static class Program
     [STAThread]
     static void Main()
     {
-        Log.Current = new GuiLog();
+        Logger.Init();
+        Log.Current = new LoggingLog(new GuiLog());
         SettingsStore.Load();
 
         // To customize application configuration such as set high DPI settings or default font,

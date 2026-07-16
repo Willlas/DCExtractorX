@@ -1,4 +1,5 @@
-﻿using Custom.IO;
+﻿using Custom.Diagnostics;
+using Custom.IO;
 using Custom.Math;
 using DC.Types;
 using DCExtractor.Data;
@@ -42,8 +43,19 @@ namespace DC.IO
         /// <returns>Whether or not the operation was a success.</returns>
         public static bool Save(Model tModel)
         {
-            //save out the model to an smd file.
-            return SaveModel(DCExtractor.Data.FileHelpers.ChangeExtension(tModel.filePath, SMDExtension), tModel);
+            try
+            {
+                //save out the model to an smd file.
+                bool bSaved = SaveModel(DCExtractor.Data.FileHelpers.ChangeExtension(tModel.filePath, SMDExtension), tModel);
+                if (bSaved)
+                    Logger.Info("Exported SMD model.", szAsset: Path.GetFileName(tModel.filePath), szModel: tModel.Name, szPath: FileHelpers.ChangeExtension(tModel.filePath, SMDExtension), bEchoToConsole: false);
+                return bSaved;
+            }
+            catch (System.Exception ex)
+            {
+                Logger.Error("Failed to export SMD model.", szAsset: Path.GetFileName(tModel.filePath), szModel: tModel.Name, szPath: tModel.filePath, tException: ex);
+                return false;
+            }
         }
 
         /// <summary>
@@ -53,20 +65,29 @@ namespace DC.IO
         /// <returns>Whether or not the operation was a success.</returns>
         public static bool SaveAnimations(Model tModel)
         {
-            //Make sure we have animations to save.
-            if (tModel.Animations != null && tModel.Animations.Length > 0)
+            try
             {
-                //Generate a base name for the animations.
-                string szBaseName = Path.GetFileNameWithoutExtension(tModel.filePath);
+                //Make sure we have animations to save.
+                if (tModel.Animations != null && tModel.Animations.Length > 0)
+                {
+                    //Generate a base name for the animations.
+                    string szBaseName = Path.GetFileNameWithoutExtension(tModel.filePath);
 
-                //Generate a new animation directory for the animations to save to.
-                string szAnimationDirectory = Path.Combine(Path.GetDirectoryName(tModel.filePath), "anims");
+                    //Generate a new animation directory for the animations to save to.
+                    string szAnimationDirectory = Path.Combine(Path.GetDirectoryName(tModel.filePath), "anims");
 
-                //Save out the animations.
-                SaveAnimations(szBaseName, szAnimationDirectory, tModel);
-                return true;
+                    //Save out the animations.
+                    SaveAnimations(szBaseName, szAnimationDirectory, tModel);
+                    Logger.Info("Exported SMD animations.", szAsset: Path.GetFileName(tModel.filePath), szModel: tModel.Name, szPath: szAnimationDirectory, bEchoToConsole: false);
+                    return true;
+                }
+                return false;
             }
-            return false;
+            catch (System.Exception ex)
+            {
+                Logger.Error("Failed to export SMD animations.", szAsset: Path.GetFileName(tModel.filePath), szModel: tModel.Name, szPath: tModel.filePath, tException: ex);
+                return false;
+            }
         }
 
         /// <summary>

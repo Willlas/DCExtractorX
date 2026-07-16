@@ -283,11 +283,33 @@ namespace DC.IO
         /// <returns>Whether or not the operation was successful.</returns>
         static bool LoadIMG(string szIMGPath, out Types.TIM2Image[] tImages)
         {
+            try
+            {
+                return LoadIMGCore(szIMGPath, out tImages);
+            }
+            catch (System.Exception ex)
+            {
+                Log.Current.Error("Failed to parse IMG file.\n" + ex.Message, "Exception:IMG.LoadIMG");
+                Logger.Error("Failed to parse IMG file.", szAsset: Path.GetFileName(szIMGPath), szFile: Path.GetFileName(szIMGPath), szPath: szIMGPath, tException: ex, bEchoToConsole: false);
+                tImages = null;
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// The original IMG parsing logic (unchanged), now wrapped by LoadIMG's try/catch above.
+        /// </summary>
+        static bool LoadIMGCore(string szIMGPath, out Types.TIM2Image[] tImages)
+        {
             //Open a reader for the file.
             tImages = null;
             BinaryReader tReader = FileStreamHelpers.OpenBinaryReader(szIMGPath);
             if (tReader == null || tReader.BaseStream.Length == 0)
+            {
+                if (tReader != null)
+                    Logger.Warn("IMG file is empty; skipping.", szAsset: Path.GetFileName(szIMGPath), szFile: Path.GetFileName(szIMGPath), szPath: szIMGPath);
                 return false;
+            }
 
             //We'll use some interfaces here to make loading a bit more streamlined.
             IMGHeader tHeader;

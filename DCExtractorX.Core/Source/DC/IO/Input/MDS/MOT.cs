@@ -73,6 +73,23 @@ namespace DC.IO
         /// <returns>A list of animations.</returns>
         public static Animation[] Load(string szMOTPath)
         {
+            try
+            {
+                return LoadCore(szMOTPath);
+            }
+            catch (System.Exception ex)
+            {
+                Log.Current.Error("Failed to parse MOT animation.\n" + ex.Message, "Exception:MOT.Load");
+                Logger.Error("Failed to parse MOT animation.", szAsset: Path.GetFileName(szMOTPath), szFile: Path.GetFileName(szMOTPath), szPath: szMOTPath, tException: ex, bEchoToConsole: false);
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// The original MOT parsing logic (unchanged), now wrapped by Load's try/catch above.
+        /// </summary>
+        static Animation[] LoadCore(string szMOTPath)
+        {
             //load in our mot file.
             BinaryReader tReader = FileStreamHelpers.OpenBinaryReader(szMOTPath);
             if (tReader == null)

@@ -1,4 +1,5 @@
 using DCExtractorX.Gui.Forms;
+using System.Diagnostics;
 
 namespace DCExtractorX.Gui;
 
@@ -42,6 +43,9 @@ public partial class DCExtractorForm : Form
     readonly FileDialogFilter CFGFormat = new("Configuration", ".cfg");
 
     bool m_bIsClosing;
+
+    string m_szGameDirectory = string.Empty;
+    string m_szOutputDirectory = string.Empty;
 
     public DCExtractorForm()
     {
@@ -90,6 +94,9 @@ public partial class DCExtractorForm : Form
     {
         menuStrip1.Enabled = bState;
         BT_extractAndConvertAll.Enabled = bState;
+        BT_browseGameFolder.Enabled = bState;
+        BT_browseOutputFolder.Enabled = bState;
+        BT_openOutputFolder.Enabled = bState && Directory.Exists(m_szOutputDirectory);
         BT_cancelWork.Enabled = !bState;
     }
 
@@ -102,5 +109,35 @@ public partial class DCExtractorForm : Form
     {
         using SettingsForm tForm = new();
         tForm.ShowDialog(this);
+    }
+
+    void BT_browseGameFolder_Click(object? sender, EventArgs e)
+    {
+        if (FileDialogHelpers.ShowOpenFolderDialog("Choose the game data directory (containing DATA.DAT/DATA.HD2/DATA.HD3)", out string szPath))
+        {
+            m_szGameDirectory = szPath;
+            TB_gameFolder.Text = szPath;
+        }
+    }
+
+    void BT_browseOutputFolder_Click(object? sender, EventArgs e)
+    {
+        if (FileDialogHelpers.ShowOpenFolderDialog("Choose the output directory for the analysis/extraction results", out string szPath))
+        {
+            m_szOutputDirectory = szPath;
+            TB_outputFolder.Text = szPath;
+            BT_openOutputFolder.Enabled = Directory.Exists(m_szOutputDirectory);
+        }
+    }
+
+    void BT_openOutputFolder_Click(object? sender, EventArgs e)
+    {
+        if (Directory.Exists(m_szOutputDirectory))
+            Process.Start(new ProcessStartInfo(m_szOutputDirectory) { UseShellExecute = true });
+    }
+
+    private void menuStrip1_ItemClicked(object sender, ToolStripItemClickedEventArgs e)
+    {
+
     }
 }

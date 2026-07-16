@@ -1,5 +1,8 @@
+using Custom.Diagnostics;
 using DC;
 using DC.IO;
+using DC.Pipeline;
+using DC.Reporting;
 using DC.Types;
 using DCExtractorX.Gui.Forms;
 
@@ -252,63 +255,147 @@ public partial class DCExtractorForm : Form
     }
     #endregion
 
-    #region ExtractAndConvert
-    async void BT_extractAndConvert_Click(object? sender, EventArgs e)
+    #region AnalyzeExtractAll
+    /// <summary>
+    /// The "Analyze + Extract All" workflow: Scan -&gt; Extract -&gt; Convert -&gt; Analyze -&gt; Report, replacing the legacy
+    /// "Extract &amp; Convert Everything" button/menu. Delegates all the actual work to DC.Pipeline.AnalyzeExtractPipeline
+    /// (shared with the CLI); this method only handles picking folders, wiring pipeline progress/log events to the
+    /// UI, and showing the final summary.
+    /// </summary>
+    async void BT_analyzeExtractAll_Click(object? sender, EventArgs e)
     {
         if (isWorking)
             return;
 
-        if (FileDialogHelpers.ShowOpenFolderDialog("Choose a directory to extract ALL files from (containing DATA.DAT/DATA.HD2).", out string szExtractPath) &&
-            FileDialogHelpers.ShowOpenFolderDialog("Choose a destination directory for the converted output.", out string szDestinationPath))
+        if (string.IsNullOrEmpty(m_szGameDirectory) &&
+            FileDialogHelpers.ShowOpenFolderDialog("Choose the game data directory (containing DATA.DAT/DATA.HD2/DATA.HD3)", out string szGamePath))
         {
-            //The heavy lifting runs in the background, but the final move-to-destination step shows WinForms
-            //dialogs (conflict prompts), so it deliberately runs back on the UI thread after the await completes.
-            await RunOperationAsync(async token =>
-            {
-                await Task.Run(() => ExtractAndConvertAll(szExtractPath), token);
+            m_szGameDirectory = szGamePath;
+            TB_gameFolder.Text = szGamePath;
+        }
 
-                if (DCProgress.canceled == false)
-                    GuiFileHelpers.MoveFiles(szExtractPath, szDestinationPath, [SMDFormat, PNGFormat, CFGFormat], true, [SMDFormat, PNGFormat]);
-            });
+        if (string.IsNullOrEmpty(m_szOutputDirectory) &&
+            FileDialogHelpers.ShowOpenFolderDialog("Choose the output directory for the analysis/extraction results", out string szOutPath))
+        {
+            m_szOutputDirectory = szOutPath;
+            TB_outputFolder.Text = szOutPath;
+        }
+
+        if (string.IsNullOrEmpty(m_szGameDirectory) || string.IsNullOrEmpty(m_szOutputDirectory))
+            return;
+
+        LB_log.Items.Clear();
+        LB_summaryText.Text = string.Empty;
+
+        void OnLogEntry(LogEntry tEntry) => AppendLogEntry(tEntry);
+
+        PipelineProgress.StageChanged += OnStageChanged;
+        PipelineProgress.CurrentFileChanged += OnCurrentFileChanged;
+        PipelineProgress.CurrentAssetChanged += OnCurrentAssetChanged;
+        PipelineProgress.WarningsChanged += OnWarningsOrErrorsChanged;
+        PipelineProgress.ErrorsChanged += OnWarningsOrErrorsChanged;
+        Logger.EntryLogged += OnLogEntry;
+
+        try
+        {
+            RunReport? tReport = null;
+            await RunOperationAsync(token => Task.Run(() =>
+            {
+                tReport = AnalyzeExtractPipeline.Run(m_szGameDirectory, m_szOutputDirectory);
+            }, token));
+
+            if (tReport != null)
+                ShowSummary(tReport);
+
+            BT_openOutputFolder.Enabled = Directory.Exists(m_szOutputDirectory);
+        }
+        finally
+        {
+            PipelineProgress.StageChanged -= OnStageChanged;
+            PipelineProgress.CurrentFileChanged -= OnCurrentFileChanged;
+            PipelineProgress.CurrentAssetChanged -= OnCurrentAssetChanged;
+            PipelineProgress.WarningsChanged -= OnWarningsOrErrorsChanged;
+            PipelineProgress.ErrorsChanged -= OnWarningsOrErrorsChanged;
+            Logger.EntryLogged -= OnLogEntry;
         }
     }
 
-    /// <summary>
-    /// Mirrors the legacy DCExtractorForm_Operations.ExtractAndConvert behavior (minus the final move, which the
-    /// caller performs back on the UI thread).
-    /// </summary>
-    void ExtractAndConvertAll(string szExtractPath)
+    void ShowSummary(RunReport tReport)
     {
-        DCProgress.name = "Unpacking All";
-        DCProgress.value = 0;
+        if (m_bIsClosing || IsDisposed)
+            return;
 
-        if (DCProgress.canceled == false)
-            DAT.ExtractHD(Path.Combine(szExtractPath, "DATA.DAT"), Path.Combine(szExtractPath, "DATA.HD2"), szExtractPath, DAT.HDType.Two);
-
-        if (DCProgress.canceled == false)
-            PAK.ExtractDirectory(szExtractPath, PakExtensions());
-
-        if (DCProgress.canceled == false)
+        string szSummary = $"Processed: {tReport.Processed}  Success: {tReport.Success}  Warnings: {tReport.Warnings}  Errors: {tReport.Failed}  Unsupported: {tReport.Unsupported}";
+        if (InvokeRequired)
         {
-            Model[] tModels = MDS.LoadDirectory(szExtractPath);
-            foreach (Model tModel in tModels)
-                PerformSaveSMD(tModel);
+            BeginInvoke(new Action(() => LB_summaryText.Text = szSummary));
+            return;
         }
+        LB_summaryText.Text = szSummary;
+    }
 
-        if (DCProgress.canceled == false)
-            SavePNGs(TM2.LoadDirectory(szExtractPath));
-
-        if (DCProgress.canceled == false)
-            SavePNGs(IMG.LoadDirectory(szExtractPath));
-
-        if (DCProgress.canceled)
+    void OnStageChanged(string szStage)
+    {
+        if (m_bIsClosing || IsDisposed)
+            return;
+        if (InvokeRequired)
         {
-            DCProgress.name = "Unpack All - CANCELED";
+            BeginInvoke(new Action(() => OnStageChanged(szStage)));
+            return;
+        }
+        LB_stageText.Text = "Stage: " + szStage;
+    }
+
+    void OnCurrentFileChanged(string szFile)
+    {
+        if (m_bIsClosing || IsDisposed)
+            return;
+        if (InvokeRequired)
+        {
+            BeginInvoke(new Action(() => OnCurrentFileChanged(szFile)));
+            return;
+        }
+        LB_currentFileText.Text = "File: " + szFile;
+    }
+
+    void OnCurrentAssetChanged(string szAsset)
+    {
+        if (m_bIsClosing || IsDisposed)
+            return;
+        if (InvokeRequired)
+        {
+            BeginInvoke(new Action(() => OnCurrentAssetChanged(szAsset)));
+            return;
+        }
+        LB_currentAssetText.Text = "Asset: " + szAsset;
+    }
+
+    void OnWarningsOrErrorsChanged(int nValue)
+    {
+        //Only used to trigger a UI refresh; the actual counts are read directly from PipelineProgress.
+        if (m_bIsClosing || IsDisposed)
+            return;
+        if (InvokeRequired)
+        {
+            BeginInvoke(new Action(() => OnWarningsOrErrorsChanged(nValue)));
+            return;
+        }
+        LB_stageText.Text = $"Stage: {PipelineProgress.stage}   Warnings: {PipelineProgress.warnings}   Errors: {PipelineProgress.errors}";
+    }
+
+    void AppendLogEntry(LogEntry tEntry)
+    {
+        if (m_bIsClosing || IsDisposed)
+            return;
+        if (InvokeRequired)
+        {
+            BeginInvoke(new Action(() => AppendLogEntry(tEntry)));
             return;
         }
 
-        DCProgress.name = "Unpack All - FINISHED";
-        DCProgress.value = DCProgress.maximum;
+        LB_log.Items.Add($"[{tEntry.Timestamp:HH:mm:ss}] [{tEntry.Level}] {tEntry.Message}" + (string.IsNullOrEmpty(tEntry.Asset) ? string.Empty : $" ({tEntry.Asset})"));
+        if (LB_log.Items.Count > 0)
+            LB_log.TopIndex = LB_log.Items.Count - 1;
     }
     #endregion
 

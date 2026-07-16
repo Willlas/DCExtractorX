@@ -1,6 +1,5 @@
 ﻿using Custom.IO;
 using DC.Types;
-using System.Globalization;
 using System.IO;
 using static DC.Types.TriangleStrip;
 using Index = DC.Types.Index; //MODERNIZATION: System.Index (added in later .NET/C#) collides with the format's own Index struct; alias disambiguates.
@@ -72,12 +71,20 @@ namespace DC.IO
         /// <param name="tModel">The model to save to .objs.</param>
         public static void Save(Model tModel)
         {
-            //Due to the way the obj format seems to work, we can't have more than one mesh, otherwise it doesn't import correctly. We'll split it first and save each mesh individually.
-            Model[] tModels = tModel.Split();
-            for (int model = 0; model < tModels.Length; model++)
+            try
             {
-                //Write out the wavefront object to file.
-                SaveMesh(DCExtractor.Data.FileHelpers.ChangeExtension(tModels[model].filePath, OBJExtension), tModels[model].Meshes[0]);
+                //Due to the way the obj format seems to work, we can't have more than one mesh, otherwise it doesn't import correctly. We'll split it first and save each mesh individually.
+                Model[] tModels = tModel.Split();
+                for (int model = 0; model < tModels.Length; model++)
+                {
+                    //Write out the wavefront object to file.
+                    SaveMesh(DCExtractor.Data.FileHelpers.ChangeExtension(tModels[model].filePath, OBJExtension), tModels[model].Meshes[0]);
+                }
+                Custom.Diagnostics.Logger.Info("Exported OBJ model.", szAsset: Path.GetFileName(tModel.filePath), szModel: tModel.Name, szPath: tModel.filePath, bEchoToConsole: false);
+            }
+            catch (System.Exception ex)
+            {
+                Custom.Diagnostics.Logger.Error("Failed to export OBJ model.", szAsset: Path.GetFileName(tModel.filePath), szModel: tModel.Name, szPath: tModel.filePath, tException: ex);
             }
         }
 
@@ -96,24 +103,24 @@ namespace DC.IO
             //Output our vertex data.
             for (int v = 0; v < tMesh.VertexCount; v++)
             {
-                tWriter.WriteLine("v " + tMesh.Vertices[v].x.ToString("0.00000", CultureInfo.InvariantCulture) + " " +
-                    tMesh.Vertices[v].y.ToString("0.00000", CultureInfo.InvariantCulture) + " " +
-                    tMesh.Vertices[v].z.ToString("0.00000", CultureInfo.InvariantCulture));
+                tWriter.WriteLine("v " + tMesh.Vertices[v].x.ToString("0.00000") + " " +
+                    tMesh.Vertices[v].y.ToString("0.00000") + " " +
+                    tMesh.Vertices[v].z.ToString("0.00000"));
             }
 
             //Output our normal data.
             for (int n = 0; n < tMesh.NormalCount; n++)
             {
-                tWriter.WriteLine("vn " + tMesh.Normals[n].x.ToString("0.00000", CultureInfo.InvariantCulture) + " " +
-                tMesh.Normals[n].y.ToString("0.00000", CultureInfo.InvariantCulture) + " " +
-                tMesh.Normals[n].z.ToString("0.00000", CultureInfo.InvariantCulture));
+                tWriter.WriteLine("vn " + tMesh.Normals[n].x.ToString("0.00000") + " " +
+                tMesh.Normals[n].y.ToString("0.00000") + " " +
+                tMesh.Normals[n].z.ToString("0.00000"));
             }
 
             //Output our uv data.
             for (int uv = 0; uv < tMesh.UVCount; uv++)
             {
-                tWriter.WriteLine("vt " + tMesh.UVs[uv].x.ToString("0.00000", CultureInfo.InvariantCulture) + " " +
-                tMesh.UVs[uv].y.ToString("0.00000", CultureInfo.InvariantCulture));
+                tWriter.WriteLine("vt " + tMesh.UVs[uv].x.ToString("0.00000") + " " +
+                tMesh.UVs[uv].y.ToString("0.00000"));
             }
 
             //This part is tricky, we need to convert the polygons in the DCMesh into regular triangles.

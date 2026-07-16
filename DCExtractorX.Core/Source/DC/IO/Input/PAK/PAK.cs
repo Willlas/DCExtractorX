@@ -89,6 +89,8 @@ namespace DC.IO
             DCProgress.maximum = 1;
             DCProgress.name = "Extracting PAK";
 
+            Logger.Info("Extracting PAK-family file.", szAsset: Path.GetFileName(szPath), szFile: Path.GetFileName(szPath), szPath: szPath, bEchoToConsole: false);
+
             //Extract the PAK file.
             ExtractPAK(szPath);
 
@@ -109,10 +111,12 @@ namespace DC.IO
             DCProgress.maximum = 1;
             DCProgress.name = "Extracting PAK Directory";
 
+            Logger.Info("Scanning for PAK-family archives.", szPath: szDirectory, bEchoToConsole: false);
+
             //Calculate how many files we're going to process.
             int nMax = 0;
             for (int fileType = 0; fileType < szExtensions.Length; fileType++)
-                nMax += Directory.GetFiles(szDirectory, "*" + szExtensions[fileType], SearchOption.AllDirectories).Length;
+                nMax += Directory.GetFiles(szDirectory, "*." + szExtensions[fileType], SearchOption.AllDirectories).Length;
 
             //Set our new maximum.
             DCProgress.maximum = nMax;
@@ -123,7 +127,7 @@ namespace DC.IO
                 DCProgress.name = "Extracting " + szExtensions[fileType] + " Directory";
 
                 //Extract the directory.
-                ExtractDirectoryInternal(szDirectory, "*" + szExtensions[fileType]);
+                ExtractDirectoryInternal(szDirectory, "*." + szExtensions[fileType]);
 
                 //If we canceled, leave early.
                 if (DCProgress.canceled)
@@ -165,6 +169,22 @@ namespace DC.IO
         /// </summary>
         /// <param name="szPath">The file path of the PAK file.</param>
         static void ExtractPAK(string szPath)
+        {
+            try
+            {
+                ExtractPAKCore(szPath);
+            }
+            catch (System.Exception ex)
+            {
+                Log.Current.Error("Failed to extract PAK-family file.\n" + ex.Message, "Exception:PAK.ExtractPAK");
+                Logger.Error("Failed to extract PAK-family file.", szAsset: Path.GetFileName(szPath), szFile: Path.GetFileName(szPath), szPath: szPath, tException: ex, bEchoToConsole: false);
+            }
+        }
+
+        /// <summary>
+        /// The original PAK extraction logic (unchanged), now wrapped by ExtractPAK's try/catch above.
+        /// </summary>
+        static void ExtractPAKCore(string szPath)
         {
             //Open our file stream.
             BinaryReader tReader = FileStreamHelpers.OpenBinaryReader(szPath);

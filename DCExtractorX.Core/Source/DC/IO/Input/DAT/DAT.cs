@@ -1,4 +1,5 @@
-﻿using Custom.IO;
+﻿using Custom.Diagnostics;
+using Custom.IO;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
@@ -153,10 +154,29 @@ namespace DC.IO
         /// <param name="eType">The type of hd to load.</param>
         public static void ExtractHD(string szDatPath, string szHDPath, string szDestDirectory, HDType eType)
         {
+            //A corrupt/foreign HD2/HD3 or DAT file can make the index parsing below throw (e.g. reading past the
+            //end of a tiny/garbage file); that must not crash the whole run, just this archive's extraction.
+            try
+            {
+                ExtractHDCore(szDatPath, szHDPath, szDestDirectory, eType);
+            }
+            catch (System.Exception ex)
+            {
+                Logger.Error("Failed to extract DAT archive.", szFile: Path.GetFileName(szDatPath), szPath: szDatPath, tException: ex);
+            }
+        }
+
+        /// <summary>
+        /// The original DAT extraction logic (unchanged), now wrapped by ExtractHD's try/catch above.
+        /// </summary>
+        static void ExtractHDCore(string szDatPath, string szHDPath, string szDestDirectory, HDType eType)
+        {
             //Setup our progress bar.
             DCProgress.value = 0;
             DCProgress.maximum = 1;
             DCProgress.name = "Reading DAT File System";
+
+            Logger.Info("Extracting DAT archive.", szFile: Path.GetFileName(szDatPath), szPath: szDatPath, bEchoToConsole: false);
 
             //First, let's load in the HD file based on type.
             List<DAT.IDATEntry> tEntries = new List<DAT.IDATEntry>();
@@ -165,13 +185,19 @@ namespace DC.IO
                 case HDType.Two:
                     {
                         if (HD2.LoadHD2(szHDPath, ref tEntries) == false)
+                        {
+                            Logger.Error("Unable to read HD2 file system; DAT archive was not extracted.", szFile: Path.GetFileName(szHDPath), szPath: szHDPath);
                             return;
+                        }
                     }
                     break;
                 case HDType.Three:
                     {
                         if (HD3.LoadHD3(szHDPath, ref tEntries) == false)
+                        {
+                            Logger.Error("Unable to read HD3 file system; DAT archive was not extracted.", szFile: Path.GetFileName(szHDPath), szPath: szHDPath);
                             return;
+                        }
                     }
                     break;
                 default:
@@ -185,7 +211,10 @@ namespace DC.IO
             //open our dat file stream.
             BinaryReader tReaderDAT = FileStreamHelpers.OpenBinaryReader(szDatPath);
             if (tReaderDAT == null)
+            {
+                Logger.Error("Unable to open DAT file for reading; archive was not extracted.", szFile: Path.GetFileName(szDatPath), szPath: szDatPath);
                 return;
+            }
 
             //Output the individual files to disk.
             for (int entry = 0; entry < tEntries.Count; entry++)
@@ -261,6 +290,21 @@ namespace DC.IO
         /// <param name="tEntry">The entry of the file to extract.</param>
         /// <param name="szDestDirectory">The output directory for the file.</param>
         static void ExtractFile(this BinaryReader tReader, DAT.IDATEntry tEntry, string szDestDirectory)
+        {
+            try
+            {
+                ExtractFileCore(tReader, tEntry, szDestDirectory);
+            }
+            catch (System.Exception ex)
+            {
+                Logger.Error("Failed to extract DAT entry.", szAsset: tEntry.name, szFile: tEntry.name, szPath: szDestDirectory, nOffset: tEntry.position, tException: ex);
+            }
+        }
+
+        /// <summary>
+        /// The original DAT entry extraction logic (unchanged), now wrapped by ExtractFile's try/catch above.
+        /// </summary>
+        static void ExtractFileCore(this BinaryReader tReader, DAT.IDATEntry tEntry, string szDestDirectory)
         {
             //Create an output path from the entry's name.
             string szOutFilePath = Path.Combine(szDestDirectory, RemoveIllegalCharacters(tEntry.name));

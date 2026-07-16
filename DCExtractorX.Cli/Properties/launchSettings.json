@@ -7,6 +7,18 @@
     "Perfil 1": {
       "commandName": "Project",
       "commandLineArgs": "extract-pak-dir\r\nC:\\Users\\Guill\\Downloads\\Zq5chdfLA9\\EXTRACT-C-2"
+    },
+    "Perfil 2": {
+      "commandName": "Project",
+      "commandLineArgs": "mds2obj-dir\r\nC:\\Users\\Guill\\Downloads\\Zq5chdfLA9\\EXTRACT-C-3"
+    },
+    "Perfil 3": {
+      "commandName": "Project",
+      "commandLineArgs": "img2png-dir\r\nC:\\Users\\Guill\\Downloads\\Zq5chdfLA9\\EXTRACT-C-2"
+    },
+    "Perfil 4": {
+      "commandName": "Project",
+      "commandLineArgs": "analyze-extract-all\r\nC:\\Users\\Guill\\Downloads\\Zq5chdfLA9\\DATA-C-3\r\nC:\\Users\\Guill\\Downloads\\Zq5chdfLA9\\EXTRACT-C-3"
     }
   }
 }

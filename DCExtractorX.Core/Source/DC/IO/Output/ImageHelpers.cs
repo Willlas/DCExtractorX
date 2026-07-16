@@ -30,6 +30,22 @@ namespace DC.IO
         /// <param name="tImage">The image to convert from.</param>
         public static void SavePNG(TIM2Image tImage)
         {
+            try
+            {
+                SavePNGCore(tImage);
+                Custom.Diagnostics.Logger.Info("Exported PNG texture.", szAsset: Path.GetFileName(tImage.filePath), szTexture: Path.GetFileNameWithoutExtension(tImage.filePath), szPath: tImage.filePath, bEchoToConsole: false);
+            }
+            catch (System.Exception ex)
+            {
+                Custom.Diagnostics.Logger.Error("Failed to export PNG texture.", szAsset: Path.GetFileName(tImage.filePath), szTexture: Path.GetFileNameWithoutExtension(tImage.filePath), szPath: tImage.filePath, tException: ex);
+            }
+        }
+
+        /// <summary>
+        /// The original PNG export logic (unchanged), now wrapped by SavePNG's try/catch above.
+        /// </summary>
+        static void SavePNGCore(TIM2Image tImage)
+        {
             for (int picture = 0; picture < tImage.pictures.Length; picture++)
             {
                 //Grab a picture from the list.

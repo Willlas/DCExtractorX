@@ -45,6 +45,22 @@ namespace DC.IO
         /// <returns>A list of bone matrices that signify the starting positions of the bones for the model's bind pose.</returns>
         public static Matrix4x4[] Load(string szBBPPath)
         {
+            try
+            {
+                return LoadCore(szBBPPath);
+            }
+            catch (System.Exception ex)
+            {
+                Custom.Diagnostics.Logger.Error("Failed to parse BBP bind poses.", szAsset: Path.GetFileName(szBBPPath), szFile: Path.GetFileName(szBBPPath), szPath: szBBPPath, tException: ex);
+                return new Matrix4x4[0];
+            }
+        }
+
+        /// <summary>
+        /// The original BBP parsing logic (unchanged), now wrapped by Load's try/catch above.
+        /// </summary>
+        static Matrix4x4[] LoadCore(string szBBPPath)
+        {
             //Open a file stream to read in our data.
             BinaryReader tReader = FileStreamHelpers.OpenBinaryReader(szBBPPath);
 

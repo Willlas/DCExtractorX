@@ -65,6 +65,9 @@ namespace DC.IO
             //Load our model.
             bool bLoaded = LoadModel(szMDSPath, out tModel, bScanOnly);
 
+            if (bLoaded)
+                Logger.Info("Parsed MDS model.", szAsset: Path.GetFileName(szMDSPath), szFile: Path.GetFileName(szMDSPath), szPath: szMDSPath, szModel: tModel.Name, bEchoToConsole: false);
+
             //Report the finish.
             DCProgress.value = DCProgress.maximum;
             DCProgress.name = "Converting MDS - FINISHED";
@@ -90,37 +93,33 @@ namespace DC.IO
             List<Model> tModels = new List<Model>();
             Model tResult;
 
+            Logger.Info("Scanning for MDS models.", szPath: szFolderPath, bEchoToConsole: false);
+
             //Set our maximum to the file count.
             DCProgress.maximum = szFiles.Length;
 
             //Loop through and load those models.
             for (int i = 0; i < szFiles.Length; i++)
             {
-                try
-                {
-                    DCProgress.name = "Loading " + Path.GetFileName(szFiles[i]);
+                DCProgress.name = "Loading " + Path.GetFileName(szFiles[i]);
 
-                    //Make sure this file ends in mds. We've gotten false positives before. Add the result if the load was successful.
-                    if (szFiles[i].EndsWith(".mds") && LoadModel(szFiles[i], out tResult, bScanOnly))
-                        tModels.Add(tResult);
+                //Make sure this file ends in mds. We've gotten false positives before. Add the result if the load was successful.
+                if (szFiles[i].EndsWith(".mds") && LoadModel(szFiles[i], out tResult, bScanOnly))
+                    tModels.Add(tResult);
 
-                    //Update our progress.
-                    DCProgress.value += 1;
+                //Update our progress.
+                DCProgress.value += 1;
 
-                    //If the operation was canceled, bail out.
-                    if (DCProgress.canceled)
-                        return new Model[0];
-                }
-                catch (Exception ex)
-                {
-                    Log.Current.Error("Failed to load MDS: " + Path.GetFileName(szFiles[i]) + "\n" + ex.Message, "MDS Parsing Failed!");
-                }
-               
+                //If the operation was canceled, bail out.
+                if (DCProgress.canceled)
+                    return new Model[0];
             }
 
             //Post the finish.
             DCProgress.value = DCProgress.maximum;
             DCProgress.name = "Loading MDS Directory - FINISHED";
+
+            Logger.Info($"Finished scanning MDS models: {tModels.Count}/{szFiles.Length} parsed successfully.", szPath: szFolderPath, bEchoToConsole: false);
 
             return tModels.ToArray();
         }
@@ -134,125 +133,298 @@ namespace DC.IO
         /// <returns>Whether or not the operation was a success.</returns>
         static bool LoadModel(string szMDSPath, out Model tModel, bool bScanOnly)
         {
+            //Guards against any unexpected exception (corrupt/truncated file, unexpected offsets, etc) escaping and
+            //aborting an entire batch (e.g. MDS.LoadDirectory) just because one model is bad. Logs the failure with
+            //full context and reports it as a normal "load failed" result, same as the pre-existing failure paths below.
+            try
+            {
+                return LoadModelCore(szMDSPath, out tModel, bScanOnly);
+            }
+            catch (Exception ex)
+            {
+                Logger.Error("Failed to parse MDS model.", szAsset: Path.GetFileName(szMDSPath), szFile: Path.GetFileName(szMDSPath), szPath: szMDSPath, tException: ex);
+                tModel = null;
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Validates that the file is a valid MDS file by checking the header.
+        /// </summary>
+        /// <param name="tReader">The binary reader to read from.</param>
+        /// <param name="szMDSPath">The path of the MDS file being loaded.</param>
+        /// <returns>Whether or not the file is a valid MDS.</returns>
+        static bool ValidateHeader(BinaryReader tReader, string szMDSPath)
+        {
+            // Check that we have enough data for the header
+            if (tReader.BaseStream.Length < 16) // Minimum size for header + bone count + bone offset + first bone
+            {
+                Logger.Warn("MDS file is too small to be valid; skipping.", szAsset: Path.GetFileName(szMDSPath), szFile: Path.GetFileName(szMDSPath), szPath: szMDSPath);
+                return false;
+            }
+
+            // Read and verify the magic number
+            uint magic = Endian.Swap(tReader.ReadUInt32());
+            if (magic != Model.ModelIdentifier)
+            {
+                Logger.Warn("Invalid MDS magic number; skipping.", szAsset: Path.GetFileName(szMDSPath), szFile: Path.GetFileName(szMDSPath), szPath: szMDSPath);
+                return false;
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// Validates that the bone data is within acceptable bounds.
+        /// </summary>
+        /// <param name="tModel">The model being loaded.</param>
+        /// <param name="tReader">The binary reader to validate against.</param>
+        /// <param name="szMDSPath">The path of the MDS file being loaded.</param>
+        /// <returns>Whether or not the bone data is valid.</returns>
+        static bool ValidateBoneData(Model tModel, BinaryReader tReader, string szMDSPath)
+        {
+            // Validate bone count to prevent excessive memory allocation
+            if (tModel.BoneCount < 0 || tModel.BoneCount > 10000) // Reasonable limit for bones
+            {
+                Logger.Warn("Invalid bone count in MDS file; skipping.", szAsset: Path.GetFileName(szMDSPath), szFile: Path.GetFileName(szMDSPath), szPath: szMDSPath);
+                return false;
+            }
+
+            // Validate bone offset to prevent reading beyond file boundaries
+            if (tModel.BoneOffset < 0 || tModel.BoneOffset > tReader.BaseStream.Length)
+            {
+                Logger.Warn("Invalid bone offset in MDS file; skipping.", szAsset: Path.GetFileName(szMDSPath), szFile: Path.GetFileName(szMDSPath), szPath: szMDSPath);
+                return false;
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// The original MDS parsing logic (unchanged), now wrapped by LoadModel's try/catch above.
+        /// </summary>
+        static bool LoadModelCore(string szMDSPath, out Model tModel, bool bScanOnly)
+        {
             //Open our file stream.
             tModel = null;
-            BinaryReader tReader = FileStreamHelpers.OpenBinaryReader(szMDSPath);
-            if (tReader == null || tReader.BaseStream.Length == 0)
-                return false;
-
-            //Read in the header.
-            tModel = new Model();
-            tModel.filePath = szMDSPath;
-            tReader.BaseStream.Position += 4;
-            tModel.Header = Model.ModelIdentifier;
-            tModel.Version = Endian.Swap(tReader.ReadInt32());
-            tModel.BoneCount = tReader.ReadInt32();
-            tModel.BoneOffset = tReader.ReadInt32();
-
+            BinaryReader tReader = null;
+            try
             {
-                //Read in the bones.
-                tModel.Bones = new Bone[tModel.BoneCount];
-                for (int b = 0; b < tModel.BoneCount; b++)
+                tReader = FileStreamHelpers.OpenBinaryReader(szMDSPath);
+                if (tReader == null || tReader.BaseStream.Length == 0)
                 {
-                    tModel.Bones[b] = new Bone();
-                    tModel.Bones[b].index = tReader.ReadInt32();
-                    tModel.Bones[b].size = tReader.ReadInt32();
-                    tModel.Bones[b].name = tReader.ReadBytesAsString(Bone.BoneNameLength);
-                    tModel.Bones[b].associatedMDTOffset = tReader.ReadInt32();
-                    tModel.Bones[b].parentIndex = tReader.ReadInt32();
-                    tModel.Bones[b].local = tReader.ReadMatrix();
-                }
-
-                //Assign all of the parent bones.
-                for (int i = 0; i < tModel.BoneCount; i++)
-                {
-                    if (tModel.Bones[i].parentIndex != -1)
-                        tModel.Bones[i].parent = tModel.Bones[tModel.Bones[i].parentIndex];
-                }
-
-                //Calculate the bone hierarchy.
-                for (int i = 0; i < tModel.BoneCount; i++)
-                    tModel.Bones[i].CalculateHierarchy();
-
-                //Calculate the world matrices. This part is purely optional, as I was using it for debugging.
-                //for (int i = 0; i < tModel.BoneCount; i++)
-                //    tModel.Bones[i].CalculateWorldMatrix();
-            }
-
-            //read in our meshes.
-            List<Mesh> tMeshes = new List<Mesh>();
-            while (tReader.SeekHeader(Model.MeshIdentifier))
-            {
-                Mesh tMesh = LoadMesh(tReader, tReader.BaseStream.Position, bScanOnly, szMDSPath);
-                if (tMesh == null)
+                    if (tReader != null)
+                        Logger.Warn("MDS file is empty; skipping.", szAsset: Path.GetFileName(szMDSPath), szFile: Path.GetFileName(szMDSPath), szPath: szMDSPath);
                     return false;
-                tMeshes.Add(tMesh);
-            }
-            tModel.Meshes = tMeshes.ToArray();
-
-            //load in the bone bind pose file if it exists.
-            {
-                string szBBPPath = Path.ChangeExtension(szMDSPath, ".bbp");
-                if (File.Exists(szBBPPath))
-                {
-                    Matrix4x4[] tBindPoses = BBP.Load(szBBPPath);
-                    for (int bone = 0; bone < tModel.Bones.Length && bone < tBindPoses.Length; bone++)
-                    {
-                        tModel.Bones[bone].bind = tBindPoses[bone];
-                        tModel.Bones[bone].hasBindPose = true;
-                    }
                 }
-            }
 
-            //load in our weight map if it exists.
-            string szWGTPath = Path.ChangeExtension(szMDSPath, ".wgt");
-            if (File.Exists(szWGTPath))
-                tModel.Weights = WGT.Load(szWGTPath);
-
-            //associate the bone/mesh indices so we can properly weight the meshes.
-            if (bScanOnly == false)
-            {
-                for (int bone = 0; bone < tModel.Bones.Length; bone++)
+                // Validate file size before proceeding
+                if (tReader.BaseStream.Length < 16) // Minimum header size
                 {
-                    if (tModel.Bones[bone].associatedMDTOffset == 0)
-                        continue;
-                    for (int mesh = 0; mesh < tModel.Meshes.Length; mesh++)
-                    {
-                        if (tModel.Bones[bone].associatedMDTOffset == tModel.Meshes[mesh].MDTOffset)
-                        {
-                            tModel.Meshes[mesh].MeshBoneIndex = bone;
+                    Logger.Warn("MDS file is too small to be valid; skipping.", szAsset: Path.GetFileName(szMDSPath), szFile: Path.GetFileName(szMDSPath), szPath: szMDSPath);
+                    return false;
+                }
 
-                            /****************************************************/
-                            //  Here's a fun little problem that eluded me for a
-                            //  while. The bind bones seemed to be easy to nab
-                            //  from the file, but their actual purpose was rather
-                            //  mystifying. They didn't apply to the hierarchy or
-                            //  the weights, they just were... there.
-                            //
-                            //  Eventually, I realized that these are actually
-                            //  offsets for meshes to put them into their
-                            //  correct bind positions. Perhaps there was an
-                            //  engine or modeling package reason why certain
-                            //  meshes sit at the origin, but I'm glad to have
-                            //  finally figured this out.
-                            //
-                            //  Long story short, these are offsets to transform
-                            //  meshes to their correct bind positions from
-                            //  their origin starting position.
-                            /****************************************************/
-                            tModel.Meshes[mesh].TransformVertices(tModel.Bones[bone].bind);
-                            break;
+                // Validate the header first
+                if (!ValidateHeader(tReader, szMDSPath))
+                    return false;
+
+                //Read in the header.
+                tModel = new Model();
+                tModel.filePath = szMDSPath;
+                tReader.BaseStream.Position += 4;
+                tModel.Header = Model.ModelIdentifier;
+                tModel.Version = Endian.Swap(tReader.ReadInt32());
+                tModel.BoneCount = tReader.ReadInt32();
+                tModel.BoneOffset = tReader.ReadInt32();
+
+                // Validate bone count to prevent excessive memory allocation
+                if (tModel.BoneCount < 0 || tModel.BoneCount > 10000) // Reasonable limit for bones
+                {
+                    Logger.Warn("Invalid bone count in MDS file; skipping.", szAsset: Path.GetFileName(szMDSPath), szFile: Path.GetFileName(szMDSPath), szPath: szMDSPath);
+                    return false;
+                }
+
+                // Validate bone offset to prevent reading beyond file boundaries
+                if (tModel.BoneOffset < 0 || tModel.BoneOffset > tReader.BaseStream.Length)
+                {
+                    Logger.Warn("Invalid bone offset in MDS file; skipping.", szAsset: Path.GetFileName(szMDSPath), szFile: Path.GetFileName(szMDSPath), szPath: szMDSPath);
+                    return false;
+                }
+
+                // Validate bone data using new method
+                if (!ValidateBoneData(tModel, tReader, szMDSPath))
+                    return false;
+
+                {
+                    //Read in the bones.
+                    tModel.Bones = new Bone[tModel.BoneCount];
+                    for (int b = 0; b < tModel.BoneCount; b++)
+                    {
+                        try
+                        {
+                            // Validate we have enough data for bone structure before reading
+                            long requiredPosition = tReader.BaseStream.Position + 24; // 4*6 ints for bone data
+                            if (requiredPosition > tReader.BaseStream.Length)
+                            {
+                                Logger.Warn("Insufficient data for bone structure in MDS file; skipping.", szAsset: Path.GetFileName(szMDSPath), szFile: Path.GetFileName(szMDSPath), szPath: szMDSPath);
+                                return false;
+                            }
+                            
+                            tModel.Bones[b] = new Bone();
+                            tModel.Bones[b].index = tReader.ReadInt32();
+                            tModel.Bones[b].size = tReader.ReadInt32();
+                            tModel.Bones[b].name = tReader.ReadBytesAsString(Bone.BoneNameLength);
+                            tModel.Bones[b].associatedMDTOffset = tReader.ReadInt32();
+                            tModel.Bones[b].parentIndex = tReader.ReadInt32();
+                            tModel.Bones[b].local = tReader.ReadMatrix();
+                        }
+                        catch (Exception ex)
+                        {
+                            Logger.Error("Failed to load bone data in MDS file.", szAsset: Path.GetFileName(szMDSPath), szFile: Path.GetFileName(szMDSPath), szPath: szMDSPath, tException: ex);
+                            return false;
+                        }
+                    }
+
+                    //Assign all of the parent bones.
+                    for (int i = 0; i < tModel.BoneCount; i++)
+                    {
+                        if (tModel.Bones[i].parentIndex != -1)
+                        {
+                            // Validate parent index to prevent array out of bounds
+                            if (tModel.Bones[i].parentIndex >= 0 && tModel.Bones[i].parentIndex < tModel.BoneCount)
+                                tModel.Bones[i].parent = tModel.Bones[tModel.Bones[i].parentIndex];
+                            else
+                            {
+                                Logger.Warn("Invalid parent index for bone in MDS file; skipping.", szAsset: Path.GetFileName(szMDSPath), szFile: Path.GetFileName(szMDSPath), szPath: szMDSPath);
+                                return false;
+                            }
+                        }
+                    }
+
+                    //Calculate the bone hierarchy.
+                    for (int i = 0; i < tModel.BoneCount; i++)
+                        tModel.Bones[i].CalculateHierarchy();
+
+                    //Calculate the world matrices. This part is purely optional, as I was using it for debugging.
+                    //for (int i = 0; i < tModel.BoneCount; i++)
+                    //    tModel.Bones[i].CalculateWorldMatrix();
+                }
+
+                //read in our meshes.
+                List<Mesh> tMeshes = new List<Mesh>();
+                while (tReader.SeekHeader(Model.MeshIdentifier))
+                {
+                    Mesh tMesh = LoadMesh(tReader, tReader.BaseStream.Position, bScanOnly, szMDSPath);
+                    if (tMesh == null)
+                        return false;
+                    tMeshes.Add(tMesh);
+                }
+                tModel.Meshes = tMeshes.ToArray();
+
+                //load in the bone bind pose file if it exists.
+                {
+                    string szBBPPath = Path.ChangeExtension(szMDSPath, ".bbp");
+                    if (File.Exists(szBBPPath))
+                    {
+                        try
+                        {
+                            Matrix4x4[] tBindPoses = BBP.Load(szBBPPath);
+                            for (int bone = 0; bone < tModel.Bones.Length && bone < tBindPoses.Length; bone++)
+                            {
+                                tModel.Bones[bone].bind = tBindPoses[bone];
+                                tModel.Bones[bone].hasBindPose = true;
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            Logger.Error("Failed to load BBP file for MDS model.", szAsset: Path.GetFileName(szMDSPath), szFile: Path.GetFileName(szMDSPath), szPath: szMDSPath, tException: ex);
                         }
                     }
                 }
 
-                //Load in any animations.
-                string szMOTPath = Path.ChangeExtension(szMDSPath, ".mot");
-                if (File.Exists(szMOTPath))
-                    tModel.Animations = MOT.Load(szMOTPath);
+                //load in our weight map if it exists.
+                string szWGTPath = Path.ChangeExtension(szMDSPath, ".wgt");
+                if (File.Exists(szWGTPath))
+                {
+                    try
+                    {
+                        tModel.Weights = WGT.Load(szWGTPath);
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.Error("Failed to load WGT file for MDS model.", szAsset: Path.GetFileName(szMDSPath), szFile: Path.GetFileName(szMDSPath), szPath: szMDSPath, tException: ex);
+                    }
+                }
+
+                //associate the bone/mesh indices so we can properly weight the meshes.
+                if (bScanOnly == false)
+                {
+                    for (int bone = 0; bone < tModel.Bones.Length; bone++)
+                    {
+                        if (tModel.Bones[bone].associatedMDTOffset == 0)
+                            continue;
+                        for (int mesh = 0; mesh < tModel.Meshes.Length; mesh++)
+                        {
+                            if (tModel.Bones[bone].associatedMDTOffset == tModel.Meshes[mesh].MDTOffset)
+                            {
+                                tModel.Meshes[mesh].MeshBoneIndex = bone;
+
+                                /****************************************************/
+                                //  Here's a fun little problem that eluded me for a
+                                //  while. The bind bones seemed to be easy to nab
+                                //  from the file, but their actual purpose was rather
+                                //  mystifying. They didn't apply to the hierarchy or
+                                //  the weights, they just were... there.
+                                //
+                                //  Eventually, I realized that these are actually
+                                //  offsets for meshes to put them into their
+                                //  correct bind positions. Perhaps there was an
+                                //  engine or modeling package reason why certain
+                                //  meshes sit at the origin, but I'm glad to have
+                                //  finally figured this out.
+                                //
+                                //  Long story short, these are offsets to transform
+                                //  meshes to their correct bind positions from
+                                //  their origin starting position.
+                                /****************************************************/
+                                tModel.Meshes[mesh].TransformVertices(tModel.Bones[bone].bind);
+                                break;
+                            }
+                        }
+                    }
+
+                    //Load in any animations.
+                    string szMOTPath = Path.ChangeExtension(szMDSPath, ".mot");
+                    if (File.Exists(szMOTPath))
+                    {
+                        try
+                        {
+                            tModel.Animations = MOT.Load(szMOTPath);
+                        }
+                        catch (Exception ex)
+                        {
+                            Logger.Error("Failed to load MOT file for MDS model.", szAsset: Path.GetFileName(szMDSPath), szFile: Path.GetFileName(szMDSPath), szPath: szMDSPath, tException: ex);
+                        }
+                    }
+                }
+            }
+            finally
+            {
+                // Ensure we always close the reader
+                if (tReader != null)
+                {
+                    try
+                    {
+                        tReader.Close();
+                    }
+                    catch
+                    {
+                        // Ignore errors during cleanup
+                    }
+                }
             }
 
-            tReader.Close();
             return true;
         }
 
@@ -357,8 +529,22 @@ namespace DC.IO
             //If we have faces, load them at the offset.
             if (tMesh.PolygonBlockSize > 0)// && bScanOnly == false)
             {
+                // Validate polygon buffer size to prevent overflow issues
+                if (tMesh.PolygonsOffset < 0 || tMesh.PolygonBlockSize < 0)
+                {
+                    Logger.Warn("Invalid polygon data in MDS mesh; skipping.", szAsset: Path.GetFileName(szFileName), szFile: Path.GetFileName(szFileName), szPath: szFileName);
+                    return null;
+                }
+
                 //Faces are weird, we need to know then end of the buffer since faces can have varying size. We calculate this offset.
                 long nFaceBufferEnd = nMeshOffset + tMesh.PolygonsOffset + tMesh.PolygonBlockSize;
+
+                // Validate buffer bounds
+                if (nFaceBufferEnd > tReader.BaseStream.Length)
+                {
+                    Logger.Warn("Polygon data extends beyond file boundary in MDS mesh; skipping.", szAsset: Path.GetFileName(szFileName), szFile: Path.GetFileName(szFileName), szPath: szFileName);
+                    return null;
+                }
 
                 //Start at the beginning of the face buffer.
                 tReader.BaseStream.Position = nMeshOffset + tMesh.PolygonsOffset;
@@ -372,63 +558,85 @@ namespace DC.IO
                     tPolygon.StripCount = tReader.ReadInt32();
                     tPolygon.Unused2 = tReader.ReadInt32();
 
+                    // Validate strip count to prevent excessive memory allocation
+                    if (tPolygon.StripCount < 0 || tPolygon.StripCount > 1000) // Reasonable limit for strips
+                    {
+                        Logger.Warn("Invalid strip count in MDS polygon data; skipping.", szAsset: Path.GetFileName(szFileName), szFile: Path.GetFileName(szFileName), szPath: szFileName);
+                        return null;
+                    }
+
                     //For each strip.
                     tPolygon.Strips = new TriangleStrip[tPolygon.StripCount];
                     for (int strip = 0; strip < tPolygon.StripCount; strip++)
                     {
-                        //Get the header for the strip.
-                        tPolygon.Strips[strip].Style = (PrimitiveStyle)tReader.ReadByte();
-                        tPolygon.Strips[strip].Type = (TriangleStrip.PrimitiveType)tReader.ReadByte();
-                        tPolygon.Strips[strip].Unused1 = tReader.ReadInt16();
-                        tPolygon.Strips[strip].IndexCount = tReader.ReadInt32();
-                        tPolygon.Strips[strip].MaterialIndex = tReader.ReadInt32();
-
-                        //In the weird case where our incoming primitive is a collision mesh, the index data can only be of type Vertex.
-                        TriangleStrip.PrimitiveType eType = tPolygon.Strips[strip].Type;
-                        if (tPolygon.Strips[strip].Style == PrimitiveStyle.DC2_COLLISION_TRIANGLES)
-                            eType = TriangleStrip.PrimitiveType.Vertex;
-
-                        //HACK  :   We'll switch here to make sure we're going getting a style we don't support. Most of these styles appear to be custom, and
-                        //  since they are so rarely encountered, it's probably best to just not support them.
-                        switch (tPolygon.Strips[strip].Style)
+                        try
                         {
-                            case PrimitiveStyle.GL_TRIANGLES:
-                            case PrimitiveStyle.GL_TRIANGLE_STRIP:
-                            case PrimitiveStyle.DC2_COLLISION_TRIANGLES:
-                                break;
-                            default:
-                                {
-                                    string szEnumType = System.Enum.GetName(typeof(PrimitiveStyle), tPolygon.Strips[strip].Style);
-                                    if (string.IsNullOrEmpty(szEnumType))
-                                        szEnumType = ((int)tPolygon.Strips[strip].Style).ToString();
-                                    if (Settings.showMDSWarnings)
-                                    {
-                                        Log.Current.Warn("Invalid index data found in MDS: " + Path.GetFileName(szFileName) + "\n" +
-                                             szEnumType + " style is not supported.\n Skipping File.",
-                                            "MDS Parsing Failed!");
-                                    }
-                                }
+                            //Get the header for the strip.
+                            tPolygon.Strips[strip].Style = (PrimitiveStyle)tReader.ReadByte();
+                            tPolygon.Strips[strip].Type = (TriangleStrip.PrimitiveType)tReader.ReadByte();
+                            tPolygon.Strips[strip].Unused1 = tReader.ReadInt16();
+                            tPolygon.Strips[strip].IndexCount = tReader.ReadInt32();
+                            tPolygon.Strips[strip].MaterialIndex = tReader.ReadInt32();
+
+                            // Validate index count to prevent excessive memory allocation
+                            if (tPolygon.Strips[strip].IndexCount < 0 || tPolygon.Strips[strip].IndexCount > 100000) // Reasonable limit for indices
+                            {
+                                Logger.Warn("Invalid index count in MDS polygon strip; skipping.", szAsset: Path.GetFileName(szFileName), szFile: Path.GetFileName(szFileName), szPath: szFileName);
                                 return null;
-                        }
+                            }
+
+                            //In the weird case where our incoming primitive is a collision mesh, the index data can only be of type Vertex.
+                            TriangleStrip.PrimitiveType eType = tPolygon.Strips[strip].Type;
+                            if (tPolygon.Strips[strip].Style == PrimitiveStyle.DC2_COLLISION_TRIANGLES)
+                                eType = TriangleStrip.PrimitiveType.Vertex;
+
+                            //HACK  :   We'll switch here to make sure we're going getting a style we don't support. Most of these styles appear to be custom, and
+                            //  since they are so rarely encountered, it's probably best to just not support them.
+                            switch (tPolygon.Strips[strip].Style)
+                            {
+                                case PrimitiveStyle.GL_TRIANGLES:
+                                case PrimitiveStyle.GL_TRIANGLE_STRIP:
+                                case PrimitiveStyle.DC2_COLLISION_TRIANGLES:
+                                    break;
+                                default:
+                                    {
+                                        string szEnumType = System.Enum.GetName(typeof(PrimitiveStyle), tPolygon.Strips[strip].Style);
+                                        if (string.IsNullOrEmpty(szEnumType))
+                                            szEnumType = ((int)tPolygon.Strips[strip].Style).ToString();
+                                        if (Settings.showMDSWarnings)
+                                        {
+                                            Log.Current.Warn("Invalid index data found in MDS: " + Path.GetFileName(szFileName) + "\n" +
+                                                 szEnumType + " style is not supported.\n Skipping File.",
+                                                "MDS Parsing Failed!");
+                                        }
+                                    }
+                                    return null;
+                            }
 
 #if DEBUG
-                        if (bScanOnly == false)
-                        {
+                            if (bScanOnly == false)
+                            {
 #endif
-                            //At the end of the header, we loop through the indicies and grab the relevant indicies.
-                            tPolygon.Strips[strip].Indices = new Index[tPolygon.Strips[strip].IndexCount];
-                            for (int index = 0; index < tPolygon.Strips[strip].IndexCount; index++)
-                                tPolygon.Strips[strip].Indices[index] = tReader.ReadIndex(eType);
+                                //At the end of the header, we loop through the indicies and grab the relevant indicies.
+                                tPolygon.Strips[strip].Indices = new Index[tPolygon.Strips[strip].IndexCount];
+                                for (int index = 0; index < tPolygon.Strips[strip].IndexCount; index++)
+                                    tPolygon.Strips[strip].Indices[index] = tReader.ReadIndex(eType);
 #if DEBUG
-                        }
-                        else
-                        {
-                            tPolygon.Strips[strip].Indices = new Index[1];
-                            tPolygon.Strips[strip].Indices[0] = tReader.ReadIndex(tPolygon.Strips[strip].Type);
-                            //Skip the rest of the indices.
-                            tReader.BaseStream.Position += (tPolygon.Strips[strip].IndexCount - 1) * sizeof(int) * 3;
-                        }
+                            }
+                            else
+                            {
+                                tPolygon.Strips[strip].Indices = new Index[1];
+                                tPolygon.Strips[strip].Indices[0] = tReader.ReadIndex(tPolygon.Strips[strip].Type);
+                                //Skip the rest of the indices.
+                                tReader.BaseStream.Position += (tPolygon.Strips[strip].IndexCount - 1) * sizeof(int) * 3;
+                            }
 #endif
+                        }
+                        catch (Exception ex)
+                        {
+                            Logger.Error("Failed to load polygon strip data in MDS mesh.", szAsset: Path.GetFileName(szFileName), szFile: Path.GetFileName(szFileName), szPath: szFileName, tException: ex);
+                            return null;
+                        }
                     }
                     tMesh.Polygons.Add(tPolygon);
                     if (bScanOnly)

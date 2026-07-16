@@ -1,5 +1,6 @@
 ﻿using Custom.IO;
 using DC.Types;
+using System;
 using System.Collections.Generic;
 using System.IO;
 
@@ -44,6 +45,22 @@ namespace DC.IO
         /// <param name="szWGTPath">The path to the weight file.</param>
         /// <returns>A list of vertex weights.</returns>
         public static VertexWeight[] Load(string szWGTPath)
+        {
+            try
+            {
+                return LoadCore(szWGTPath);
+            }
+            catch (Exception ex)
+            {
+                Custom.Diagnostics.Logger.Error("Failed to parse WGT weights.", szAsset: Path.GetFileName(szWGTPath), szFile: Path.GetFileName(szWGTPath), szPath: szWGTPath, tException: ex);
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// The original WGT parsing logic (unchanged), now wrapped by Load's try/catch above.
+        /// </summary>
+        static VertexWeight[] LoadCore(string szWGTPath)
         {
             BinaryReader tReader = FileStreamHelpers.OpenBinaryReader(szWGTPath);
             if (tReader == null)

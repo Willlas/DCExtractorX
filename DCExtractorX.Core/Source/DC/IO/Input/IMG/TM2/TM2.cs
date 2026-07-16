@@ -137,10 +137,30 @@ namespace DC.IO
         /// <returns>The TIM2 image file.</returns>
         static TIM2Image LoadTIM2(string szFilePath)
         {
+            try
+            {
+                return LoadTIM2Core(szFilePath);
+            }
+            catch (System.Exception ex)
+            {
+                Custom.Diagnostics.Logger.Error("Failed to parse TM2 image.", szAsset: Path.GetFileName(szFilePath), szFile: Path.GetFileName(szFilePath), szPath: szFilePath, szTexture: Path.GetFileNameWithoutExtension(szFilePath), tException: ex);
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// The original TM2 parsing logic (unchanged), now wrapped by LoadTIM2's try/catch above.
+        /// </summary>
+        static TIM2Image LoadTIM2Core(string szFilePath)
+        {
             //Open a file stream.
             BinaryReader tReader = FileStreamHelpers.OpenBinaryReader(szFilePath);
             if (tReader == null || tReader.BaseStream.Length == 0)
+            {
+                if (tReader != null)
+                    Custom.Diagnostics.Logger.Warn("TM2 file is empty; skipping.", szAsset: Path.GetFileName(szFilePath), szFile: Path.GetFileName(szFilePath), szPath: szFilePath);
                 return null;
+            }
 
             //Read the TIM2Image.
             TIM2Image tImage = tReader.ReadTIM2Image(0);
