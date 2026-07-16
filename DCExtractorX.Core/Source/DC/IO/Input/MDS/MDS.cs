@@ -171,6 +171,14 @@ namespace DC.IO
                 return false;
             }
 
+            // Additional validation: check for reasonable header size
+            long headerPosition = tReader.BaseStream.Position;
+            if (headerPosition < 0 || headerPosition > tReader.BaseStream.Length)
+            {
+                Logger.Warn("Invalid header position in MDS file; skipping.", szAsset: Path.GetFileName(szMDSPath), szFile: Path.GetFileName(szMDSPath), szPath: szMDSPath);
+                return false;
+            }
+
             return true;
         }
 
@@ -195,6 +203,19 @@ namespace DC.IO
             {
                 Logger.Warn("Invalid bone offset in MDS file; skipping.", szAsset: Path.GetFileName(szMDSPath), szFile: Path.GetFileName(szMDSPath), szPath: szMDSPath);
                 return false;
+            }
+
+            // Validate that we have enough data for the specified number of bones
+            if (tModel.BoneCount > 0)
+            {
+                long requiredBoneDataSize = tModel.BoneCount * 24; // Each bone has 6 int32s = 24 bytes
+                long boneEndPosition = tModel.BoneOffset + requiredBoneDataSize;
+                
+                if (boneEndPosition > tReader.BaseStream.Length)
+                {
+                    Logger.Warn("Insufficient data for bone structure in MDS file; skipping.", szAsset: Path.GetFileName(szMDSPath), szFile: Path.GetFileName(szMDSPath), szPath: szMDSPath);
+                    return false;
+                }
             }
 
             return true;
@@ -313,8 +334,17 @@ namespace DC.IO
 
                 //read in our meshes.
                 List<Mesh> tMeshes = new List<Mesh>();
+                long meshStartPosition = tReader.BaseStream.Position;
                 while (tReader.SeekHeader(Model.MeshIdentifier))
                 {
+                    // Verify we have enough data for the mesh header before reading
+                    long currentPos = tReader.BaseStream.Position;
+                    if (currentPos + 40 > tReader.BaseStream.Length) // 40 bytes minimum for MDT header
+                    {
+                        Logger.Warn("Insufficient data for mesh header in MDS file; skipping.", szAsset: Path.GetFileName(szMDSPath), szFile: Path.GetFileName(szMDSPath), szPath: szMDSPath);
+                        return false;
+                    }
+                    
                     Mesh tMesh = LoadMesh(tReader, tReader.BaseStream.Position, bScanOnly, szMDSPath);
                     if (tMesh == null)
                         return false;
@@ -468,6 +498,21 @@ namespace DC.IO
             tMesh.MaterialCount = tReader.ReadInt32();
             tMesh.MaterialOffset = tReader.ReadInt32();
 
+            // Validate mesh header data to prevent buffer overflows
+            if (tMesh.HeaderSize < 0 || tMesh.MeshDataSize < 0)
+            {
+                Logger.Warn("Invalid mesh header data in MDS file; skipping.", szAsset: Path.GetFileName(szFileName), szFile: Path.GetFileName(szFileName), szPath: szFileName);
+                return null;
+            }
+
+            // Validate that we have enough data for the mesh structure
+            long expectedMeshEnd = nMeshOffset + tMesh.MeshDataSize;
+            if (expectedMeshEnd > tReader.BaseStream.Length)
+            {
+                Logger.Warn("Mesh data extends beyond file boundary in MDS file; skipping.", szAsset: Path.GetFileName(szFileName), szFile: Path.GetFileName(szFileName), szPath: szFileName);
+                return null;
+            }
+
             //An fyi, the scan option is mainly for debugging purposes. It can safely be ignored if you aren't doing stuff with the meta file generation.
 #if DEBUG
             if (bScanOnly == false)
@@ -477,6 +522,12 @@ namespace DC.IO
                 if (tMesh.VertexCount > 0)
                 {
                     tReader.BaseStream.Position = nMeshOffset + tMesh.VertexOffset;
+                    // Validate vertex count to prevent excessive memory allocation
+                    if (tMesh.VertexCount > 1000000) // Reasonable limit for vertices
+                    {
+                        Logger.Warn("Invalid vertex count in MDS mesh; skipping.", szAsset: Path.GetFileName(szFileName), szFile: Path.GetFileName(szFileName), szPath: szFileName);
+                        return null;
+                    }
                     tMesh.Vertices = new Vector4[tMesh.VertexCount];
                     for (int v = 0; v < tMesh.VertexCount; v++)
                         tMesh.Vertices[v] = tReader.ReadVector4();
@@ -486,6 +537,12 @@ namespace DC.IO
                 if (tMesh.NormalCount > 0)
                 {
                     tReader.BaseStream.Position = nMeshOffset + tMesh.NormalOffset;
+                    // Validate normal count to prevent excessive memory allocation
+                    if (tMesh.NormalCount > 1000000) // Reasonable limit for normals
+                    {
+                        Logger.Warn("Invalid normal count in MDS mesh; skipping.", szAsset: Path.GetFileName(szFileName), szFile: Path.GetFileName(szFileName), szPath: szFileName);
+                        return null;
+                    }
                     tMesh.Normals = new Vector4[tMesh.NormalCount];
                     for (int n = 0; n < tMesh.NormalCount; n++)
                         tMesh.Normals[n] = tReader.ReadVector4();
@@ -495,6 +552,12 @@ namespace DC.IO
                 if (tMesh.UVCount > 0)
                 {
                     tReader.BaseStream.Position = nMeshOffset + tMesh.UVOffset;
+                    // Validate UV count to prevent excessive memory allocation
+                    if (tMesh.UVCount > 1000000) // Reasonable limit for UVs
+                    {
+                        Logger.Warn("Invalid UV count in MDS mesh; skipping.", szAsset: Path.GetFileName(szFileName), szFile: Path.GetFileName(szFileName), szPath: szFileName);
+                        return null;
+                    }
                     tMesh.UVs = new Vector4[tMesh.UVCount];
                     for (int uv = 0; uv < tMesh.UVCount; uv++)
                         tMesh.UVs[uv] = tReader.ReadVector4();
@@ -504,6 +567,12 @@ namespace DC.IO
                 if (tMesh.ColorCount > 0)
                 {
                     tReader.BaseStream.Position = nMeshOffset + tMesh.ColorOffset;
+                    // Validate color count to prevent excessive memory allocation
+                    if (tMesh.ColorCount > 1000000) // Reasonable limit for colors
+                    {
+                        Logger.Warn("Invalid color count in MDS mesh; skipping.", szAsset: Path.GetFileName(szFileName), szFile: Path.GetFileName(szFileName), szPath: szFileName);
+                        return null;
+                    }
                     tMesh.Colors = new Vector4[tMesh.ColorCount];
                     for (int color = 0; color < tMesh.ColorCount; color++)
                         tMesh.Colors[color] = tReader.ReadVector4();
@@ -513,6 +582,12 @@ namespace DC.IO
                 if (tMesh.MaterialCount > 0)
                 {
                     tReader.BaseStream.Position = nMeshOffset + tMesh.MaterialOffset;
+                    // Validate material count to prevent excessive memory allocation
+                    if (tMesh.MaterialCount > 1000) // Reasonable limit for materials
+                    {
+                        Logger.Warn("Invalid material count in MDS mesh; skipping.", szAsset: Path.GetFileName(szFileName), szFile: Path.GetFileName(szFileName), szPath: szFileName);
+                        return null;
+                    }
                     tMesh.Materials = new Mesh.Material[tMesh.MaterialCount];
                     for (int i = 0; i < tMesh.MaterialCount; i++)
                     {
